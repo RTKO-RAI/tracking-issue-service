@@ -1,17 +1,20 @@
 package com.raiffeisen.rai_application.controller;
 
+import com.raiffeisen.rai_application.model.IssueRequest;
 import org.springframework.ai.chat.client.ChatClient;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.core.io.ClassPathResource;
-import org.springframework.web.bind.annotation.GetMapping;
-import org.springframework.web.bind.annotation.RequestParam;
-import org.springframework.web.bind.annotation.RestController;
+import org.springframework.http.HttpStatus;
+import org.springframework.http.ResponseEntity;
+import org.springframework.web.bind.annotation.*;
 
 import java.io.BufferedReader;
 import java.io.IOException;
 import java.io.InputStreamReader;
 import java.nio.charset.StandardCharsets;
+import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 
 @RestController
@@ -19,14 +22,16 @@ public class ChatBotController {
 
     private final ChatClient chatClient;
     private final Map<String, String> trackingData;
+    private final List<String> categories;
 
     @Autowired
     public ChatBotController(ChatClient.Builder builder) {
         this.chatClient = builder.build();
-        this.trackingData = loadTrackingData();
+        this.trackingData = loadDataFromInternalSystems();
+        this.categories = loadCategories();
     }
 
-    private Map<String, String> loadTrackingData() {
+    private Map<String, String> loadDataFromInternalSystems() {
         Map<String, String> data = new HashMap<>();
         try (BufferedReader br = new BufferedReader(new InputStreamReader(
                 new ClassPathResource("tracking_data.csv").getInputStream(), StandardCharsets.UTF_8))) {
@@ -43,28 +48,48 @@ public class ChatBotController {
         return data;
     }
 
-    @GetMapping("/api/v1/track")
-    public String trackIssue(@RequestParam String userId, @RequestParam String freeText) {
-        String prompt = "Return one of these categories based on the text ,mobile-sms,cardDelay,cardLost,cardDamaged and if you don't match the request on any of these return None "+freeText;
+    private List<String> loadCategories() {
+        List<String> categories = new ArrayList<>();
+        try (BufferedReader br = new BufferedReader(new InputStreamReader(
+                new ClassPathResource("categories.csv").getInputStream(), StandardCharsets.UTF_8))) {
+            String line;
+            while ((line = br.readLine()) != null) {
+                categories.add(line.trim());
+            }
+        } catch (IOException e) {
+            e.printStackTrace();
+        }
+        return categories;
+    }
+
+    @PostMapping("/api/v1/track-issues")
+    public ResponseEntity<Map<String, Object>> trackIssue(@RequestBody IssueRequest request) {
+        String prompt = "Return one of these categories based on the text: " + String.join(",", categories) + ". If no match, return None. " + request.getRequest();
+        Map<String, Object> response = new HashMap<>();
         try {
-            // Use ChatClient to determine the incident category from free text
             String incidentCategory = chatClient.prompt(prompt).call().content();
 
-            // Build the key for tracking data lookup
-            String key = userId + "-" + incidentCategory;
-            // Optionally send the response back to the chatbot client
-            return trackingData.getOrDefault(key, "Per momentin nuk mund te pergjigjem per kete pytje.");
+            String key = (incidentCategory != null && incidentCategory.equals("atm-issue")) ? incidentCategory : request.getUserId() + "-" + incidentCategory;
+            String result = trackingData.getOrDefault(key, "Per momentin nuk mund te pergjigjem per kete pytje.");
+            response.put("category", incidentCategory);
+            response.put("message", result);
+            return ResponseEntity.ok(response);
         } catch (Exception e) {
-            return "Error: " + e.getMessage();
+            response.put("error", e.getMessage());
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(response);
         }
     }
 
     @GetMapping("/api/v1/chat")
-    public String chat(@RequestParam String prompt) {
+    public ResponseEntity<Map<String, String>> chat(@RequestParam String prompt) {
+        Map<String, String> response = new HashMap<>();
         try {
-            return chatClient.prompt(prompt).call().content();
+            String content = chatClient.prompt(prompt).call().content();
+            response.put("response", content);
+            return ResponseEntity.ok(response);
         } catch (Exception e) {
-            return "Error: " + e.getMessage();
+            response.put("error", e.getMessage());
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(response);
         }
     }
 }
