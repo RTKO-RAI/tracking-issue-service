@@ -37,7 +37,7 @@ public class ChatBotController {
                 new ClassPathResource("tracking_data.csv").getInputStream(), StandardCharsets.UTF_8))) {
             String line;
             while ((line = br.readLine()) != null) {
-                String[] parts = line.split(",");
+                String[] parts = line.split("~");
                 if (parts.length == 2) {
                     data.put(parts[0], parts[1]);
                 }
@@ -69,8 +69,8 @@ public class ChatBotController {
         try {
             String incidentCategory = chatClient.prompt(prompt).call().content();
 
-            String key = (incidentCategory != null && incidentCategory.equals("atm-issue")) ? incidentCategory : request.getUserId() + "-" + incidentCategory;
-            String result = trackingData.getOrDefault(key, "Per momentin nuk mund te pergjigjem per kete pytje.");
+            String key = (incidentCategory != null && (incidentCategory.contains("atm-issue") || incidentCategory.contains("None"))) ? incidentCategory : request.getUserId() + "-" + incidentCategory;
+            String result = trackingData.getOrDefault(key,"At the moment, I cannot answer this question");
             response.put("category", incidentCategory);
             response.put("message", result);
             return ResponseEntity.ok(response);
