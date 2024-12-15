@@ -12,14 +12,10 @@ import java.io.BufferedReader;
 import java.io.IOException;
 import java.io.InputStreamReader;
 import java.nio.charset.StandardCharsets;
-import java.util.ArrayList;
-import java.util.HashMap;
-import java.util.List;
-import java.util.Map;
+import java.util.*;
 
 @RestController
 public class ChatBotController {
-
     private final ChatClient chatClient;
     private final Map<String, String> trackingData;
     private final List<String> categories;
@@ -64,28 +60,25 @@ public class ChatBotController {
 
     @PostMapping("/api/v1/track-issues")
     public ResponseEntity<Map<String, Object>> trackIssue(@RequestBody IssueRequest request) {
-        String prompt = "Return one of these categories based on the text: " + String.join(",", categories) + ". If no match, return None. " + request.getRequest();
+        String prompt = "Return one of these categories based on the text: " + String.join(",", categories) + ". Also, extract the location if provided . If no match, return None. " + request.getRequest();
         Map<String, Object> response = new HashMap<>();
         try {
             String incidentCategory = chatClient.prompt(prompt).call().content();
 
+            String location = "";
+            if (incidentCategory != null && incidentCategory.contains("Location:")) {
+                String[] parts = incidentCategory.split("Location:");
+                incidentCategory = parts[0].trim().split("Category:")[1].trim();
+                location = parts.length > 1 ? parts[1].trim() : "";
+            }
+
             String key = (incidentCategory != null && (incidentCategory.contains("atm-issue") || incidentCategory.contains("None"))) ? incidentCategory : request.getUserId() + "-" + incidentCategory;
-            String result = trackingData.getOrDefault(key,"At the moment, I cannot answer this question");
+            if ((!location.equals("None") && incidentCategory != null && incidentCategory.contains("atm-issue"))) {
+                key += "-" + location;
+            }
+            String result = trackingData.getOrDefault(key, "At the moment, I cannot answer this question");
             response.put("category", incidentCategory);
             response.put("message", result);
-            return ResponseEntity.ok(response);
-        } catch (Exception e) {
-            response.put("error", e.getMessage());
-            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(response);
-        }
-    }
-
-    @GetMapping("/api/v1/chat")
-    public ResponseEntity<Map<String, String>> chat(@RequestParam String prompt) {
-        Map<String, String> response = new HashMap<>();
-        try {
-            String content = chatClient.prompt(prompt).call().content();
-            response.put("response", content);
             return ResponseEntity.ok(response);
         } catch (Exception e) {
             response.put("error", e.getMessage());
